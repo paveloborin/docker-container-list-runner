@@ -10,16 +10,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"sort"
+	"io"
+	"io/ioutil"
 )
-
-/*type dockerClientInterface interface {
-	ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error)
-	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, containerName string) (container.ContainerCreateCreatedBody, error)
-	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
-	ContainerWait(ctx context.Context, containerID string) (int64, error)
-	ContainerExport(ctx context.Context, containerID string) (io.ReadCloser, error)
-	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
-}*/
 
 type DockerClientWrapper struct {
 	dockerClient client.Client
@@ -36,14 +29,19 @@ func New() (*DockerClientWrapper, error) {
 	return &DockerClientWrapper{dockerClient: *cli}, nil
 }
 
-func (c *DockerClientWrapper) StartContainer(container ContainerDescription, wg *sync.WaitGroup, done <-chan bool, runningContainersChan chan ContainerDescription) {
+func (c *DockerClientWrapper) StartContainer(container ContainerDescription, wg *sync.WaitGroup, done chan bool, runningContainersChan chan ContainerDescription) {
 	defer wg.Done()
 	select {
 	case <-done:
 		return
 	default:
-
-		containerCreatedResponse := createContainer(&c.dockerClient, container)
+		//create container
+		containerCreatedResponse, err := createContainer(&c.dockerClient, container)
+		if nil != err {
+			fmt.Println(err)
+			close(done)
+			return
+		}
 		container.ID = containerCreatedResponse.ID
 		fmt.Printf("Start container %s %s \n", container.ID, container.Name)
 
@@ -53,32 +51,29 @@ func (c *DockerClientWrapper) StartContainer(container ContainerDescription, wg 
 			container.ID,
 			types.ContainerStartOptions{},
 		); nil != err {
-			panic(err)
+			close(done)
+			fmt.Errorf("Error %s \n", err)
+			return
 		}
 		runningContainersChan <- container
 
 	}
 }
 
-func (c *DockerClientWrapper) StopContainer(container ContainerDescription, wg *sync.WaitGroup, done <-chan bool, stoppedContainersChan chan ContainerDescription) {
+func (c *DockerClientWrapper) StopContainer(container ContainerDescription, wg *sync.WaitGroup, stoppedContainersChan chan ContainerDescription) {
 	defer wg.Done()
 
-	select {
-	case <-done:
-		return
-	default:
-		fmt.Printf("Stop container %s %s\n", container.ID, container.Name)
-		duration := time.Duration(5 * time.Second)
-		err := c.dockerClient.ContainerStop(context.TODO(), container.ID, &duration)
-		if nil != err {
-			fmt.Errorf("stop container error %s \n", err)
-		}
-		stoppedContainersChan <- container
+	fmt.Printf("Stop container %s %s\n", container.ID, container.Name)
+	duration := time.Duration(5 * time.Second)
+	err := c.dockerClient.ContainerStop(context.TODO(), container.ID, &duration)
+	if nil != err {
+		fmt.Errorf("stop container error %s \n", err)
 	}
+	stoppedContainersChan <- container
 
 }
 
-func createContainer(dockerClient *client.Client, description ContainerDescription) container.ContainerCreateCreatedBody {
+func createContainer(dockerClient *client.Client, description ContainerDescription) (container.ContainerCreateCreatedBody, error) {
 	imageName := description.Name
 	containerConfig, hostConfig := getContainerConfigs(imageName, description.HostPort, description.DockerPort, description.Env)
 	containerCreatedResponse, err := dockerClient.ContainerCreate(
@@ -94,13 +89,15 @@ func createContainer(dockerClient *client.Client, description ContainerDescripti
 			panic(err)
 		}
 
-		err = nil
-		fmt.Printf("unable to find image '%s' locally\n", imageName)
+		fmt.Printf("Unable to find image '%s' locally\n", imageName)
+		fmt.Printf("Image '%s' pull, wait\n", imageName)
 
-		_, err = dockerClient.ImagePull(context.TODO(), imageName, types.ImagePullOptions{})
+		resp, err := dockerClient.ImagePull(context.TODO(), imageName, types.ImagePullOptions{})
 		if err != nil {
-			panic(err)
+			fmt.Println(err)
+			return container.ContainerCreateCreatedBody{}, err
 		}
+		io.Copy(ioutil.Discard, resp)
 
 		// retry create
 		containerCreatedResponse, err := dockerClient.ContainerCreate(
@@ -110,14 +107,13 @@ func createContainer(dockerClient *client.Client, description ContainerDescripti
 			nil,
 			"",
 		)
-		if nil != err {
-			panic(err)
-		}
-		fmt.Println(containerCreatedResponse.ID)
+		fmt.Println(err)
+
+		return containerCreatedResponse, err
 
 	}
 
-	return containerCreatedResponse
+	return containerCreatedResponse, nil
 }
 
 func getContainerConfigs(imageName string, hostPort, containerPort int, envVars map[string]string) (*container.Config, *container.HostConfig) {

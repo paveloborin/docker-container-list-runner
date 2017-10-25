@@ -20,7 +20,7 @@ type DockerRunner struct {
 	initContainersChan    <-chan dockerClientWrapper.ContainerDescription
 	runningContainersChan chan dockerClientWrapper.ContainerDescription
 	stoppedContainersChan chan dockerClientWrapper.ContainerDescription
-	done                  <-chan bool
+	done                  chan bool
 }
 
 func New() (*DockerRunner, error) {
@@ -56,10 +56,10 @@ func InitChans() (<-chan dockerClientWrapper.ContainerDescription, chan dockerCl
 	return outChan, make(chan dockerClientWrapper.ContainerDescription, len(inArray)), make(chan dockerClientWrapper.ContainerDescription, len(inArray))
 }
 
-//TODO реализовать счиывание конфигурации
+//TODO реализовать счиывание конфигурации из файла
 func readContainersConfiguration() []dockerClientWrapper.ContainerDescription {
 	containerDescription1 := dockerClientWrapper.ContainerDescription{Name: "percona:latest", Env: map[string]string{"MYSQL_ROOT_PASSWORD": "1"}, DockerPort: 3306, HostPort: 3306}
-	containerDescription2 := dockerClientWrapper.ContainerDescription{Name: "percona:latest", Env: map[string]string{"MYSQL_ROOT_PASSWORD": "1"}, DockerPort: 3307, HostPort: 3307}
+	containerDescription2 := dockerClientWrapper.ContainerDescription{Name: "percona:5.5.41", Env: map[string]string{"MYSQL_ROOT_PASSWORD": "1"}, DockerPort: 3307, HostPort: 3307}
 	containerDescription3 := dockerClientWrapper.ContainerDescription{Name: "percona:5.6.26", Env: map[string]string{"MYSQL_ROOT_PASSWORD": "1"}, DockerPort: 3308, HostPort: 3308}
 
 	return []dockerClientWrapper.ContainerDescription{containerDescription1, containerDescription2, containerDescription3}
@@ -98,7 +98,7 @@ func (dockerRunner *DockerRunner) Stop() {
 	for containerConfiguration := range dockerRunner.runningContainersChan {
 		wg.Add(1)
 		go func(containerConfiguration dockerClientWrapper.ContainerDescription) {
-			dockerRunner.dockerClient.StopContainer(containerConfiguration, &wg, dockerRunner.done, dockerRunner.stoppedContainersChan)
+			dockerRunner.dockerClient.StopContainer(containerConfiguration, &wg, dockerRunner.stoppedContainersChan)
 		}(containerConfiguration)
 	}
 
