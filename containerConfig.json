@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "percona:latest",
+    "DockerPort": 3306,
+    "HostPort": 3306,
+    "Env": {
+      "MYSQL_ROOT_PASSWORD": "1"
+    }
+  },
+  {
+    "Name": "percona:5.5.41",
+    "DockerPort": 3307,
+    "HostPort": 3307,
+    "Env": {
+      "MYSQL_ROOT_PASSWORD": "1"
+    }
+  },
+  {
+    "Name": "percona:5.6.26",
+    "DockerPort": 3308,
+    "HostPort": 3308,
+    "Env": {
+      "MYSQL_ROOT_PASSWORD": "1"
+    }
+  }
+]
