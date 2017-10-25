@@ -1,4 +1,4 @@
-package dockerClientWrapper
+package dockerRunner
 
 import (
 	"github.com/docker/docker/client"
@@ -18,7 +18,7 @@ type DockerClientWrapper struct {
 	dockerClient client.Client
 }
 
-func New() (*DockerClientWrapper, error) {
+func NewDockerClientWrapper() (*DockerClientWrapper, error) {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		return nil, err
