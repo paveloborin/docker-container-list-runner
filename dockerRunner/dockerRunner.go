@@ -1,19 +1,10 @@
 package dockerRunner
 
 import (
+	"log"
 	"sync"
-	"fmt"
 )
 
-//три канала:
-//1) контайнеры ожидающие запуска
-//2) контанеры запущенные
-//3) контанеры остановленные
-
-//программа начинается с запуска всех контайнеров
-//преобразование массива с данными о контенерах в канал
-//процесс принимающий элемент из канала и запускающий его в горутине, которая в случае успеха добавляет элемент в канал запушенных контейнеров
-//процесс остановки считывает элемент из канала стартовавших и запускат его остановку в горутине
 type DockerRunner struct {
 	dockerClient          DockerClientWrapper
 	initContainersChan    <-chan ContainerDescription
@@ -23,26 +14,23 @@ type DockerRunner struct {
 }
 
 func New() (*DockerRunner, error) {
-	cli, err := NewDockerClientWrapper()
+	dockerClient, err := NewDockerClientWrapper()
 	if err != nil {
 		return nil, err
 	}
 
-	initChan, runningChan, stoppedChan := InitChans()
+	initContainersChan, runningContainersChan, stoppedContainersChan := InitChannels()
 
 	return &DockerRunner{
-		dockerClient:          *cli,
-		initContainersChan:    initChan,
+		dockerClient:          *dockerClient,
+		initContainersChan:    initContainersChan,
+		runningContainersChan: runningContainersChan,
+		stoppedContainersChan: stoppedContainersChan,
 		done:                  make(chan bool),
-		runningContainersChan: runningChan,
-		stoppedContainersChan: stoppedChan,
 	}, nil
 }
 
-/**
-преобразование массива с параметрами контейнеров в канал initContainersChan, закрытие канала
- */
-func InitChans() (<-chan ContainerDescription, chan ContainerDescription, chan ContainerDescription) {
+func InitChannels() (<-chan ContainerDescription, chan ContainerDescription, chan ContainerDescription) {
 
 	inArray := LoadConfiguration()
 	outChan := make(chan ContainerDescription, len(inArray))
@@ -52,17 +40,15 @@ func InitChans() (<-chan ContainerDescription, chan ContainerDescription, chan C
 			outChan <- value
 		}
 	}()
+
 	return outChan, make(chan ContainerDescription, len(inArray)), make(chan ContainerDescription, len(inArray))
 }
 
-/**
-считывание из канала initContainersChan, запуск, запись в канал runningContainersChan, закрытие канала
- */
 func (dockerRunner *DockerRunner) Run() {
 	var wg sync.WaitGroup
-	fmt.Println("start containers running")
 
 	defer close(dockerRunner.runningContainersChan)
+	log.Println("Start containers running")
 
 	for containerConfiguration := range dockerRunner.initContainersChan {
 		wg.Add(1)
@@ -72,17 +58,14 @@ func (dockerRunner *DockerRunner) Run() {
 	}
 
 	wg.Wait()
-	fmt.Print("ended start\n\n")
+	log.Println("All containers has runned")
 }
 
-/**
-считывание из канала runningContainersChan, остановка контайнеров запись в канал stoppedContainersChan
- */
 func (dockerRunner *DockerRunner) Stop() {
 	var wg sync.WaitGroup
-	fmt.Println("stop containers")
 
 	defer close(dockerRunner.stoppedContainersChan)
+	log.Println("Stop all running containers")
 
 	for containerConfiguration := range dockerRunner.runningContainersChan {
 		wg.Add(1)
@@ -92,5 +75,5 @@ func (dockerRunner *DockerRunner) Stop() {
 	}
 
 	wg.Wait()
-	fmt.Print("ended stop\n\n")
+	log.Println("All containers has stopped")
 }
