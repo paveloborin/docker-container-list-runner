@@ -1,6 +1,7 @@
 package dockerRunner
 
 import (
+	"log"
 	"github.com/docker/docker/client"
 	"golang.org/x/net/context"
 	"sync"
@@ -20,7 +21,7 @@ type DockerClientWrapper struct {
 
 func NewDockerClientWrapper() (*DockerClientWrapper, error) {
 	cli, err := client.NewEnvClient()
-	if err != nil {
+	if nil != err {
 		return nil, err
 	}
 	if _, err := cli.Ping(context.Background()); err != nil {
@@ -31,28 +32,27 @@ func NewDockerClientWrapper() (*DockerClientWrapper, error) {
 
 func (c *DockerClientWrapper) StartContainer(container ContainerDescription, wg *sync.WaitGroup, done chan bool, runningContainersChan chan ContainerDescription) {
 	defer wg.Done()
+
 	select {
 	case <-done:
 		return
 	default:
-		//create container
 		containerCreatedResponse, err := createContainer(&c.dockerClient, container)
 		if nil != err {
-			fmt.Println(err)
+			log.Println(err)
 			close(done)
 			return
 		}
 		container.ID = containerCreatedResponse.ID
-		fmt.Printf("Start container %s %s \n", container.ID, container.Name)
+		log.Printf("Try start container %s %s \n", string(container.ID[0:10]), container.Name)
 
-		// start container
 		if err := c.dockerClient.ContainerStart(
 			context.TODO(),
 			container.ID,
 			types.ContainerStartOptions{},
 		); nil != err {
 			close(done)
-			fmt.Errorf("Error %s \n", err)
+			log.Printf("Error %s \n", err)
 			return
 		}
 		runningContainersChan <- container
@@ -63,11 +63,11 @@ func (c *DockerClientWrapper) StartContainer(container ContainerDescription, wg 
 func (c *DockerClientWrapper) StopContainer(container ContainerDescription, wg *sync.WaitGroup, stoppedContainersChan chan ContainerDescription) {
 	defer wg.Done()
 
-	fmt.Printf("Stop container %s %s\n", container.ID, container.Name)
+	log.Printf("Try stop container %s %s\n", string(container.ID[0:10]), container.Name)
 	duration := time.Duration(5 * time.Second)
 	err := c.dockerClient.ContainerStop(context.TODO(), container.ID, &duration)
 	if nil != err {
-		fmt.Errorf("stop container error %s \n", err)
+		log.Printf("Stop container error %s \n", err)
 	}
 	stoppedContainersChan <- container
 
@@ -89,12 +89,12 @@ func createContainer(dockerClient *client.Client, description ContainerDescripti
 			panic(err)
 		}
 
-		fmt.Printf("Unable to find image '%s' locally\n", imageName)
-		fmt.Printf("Image '%s' pull, wait\n", imageName)
+		log.Printf("Unable to find image '%s' locally\n", imageName)
+		log.Printf("Image '%s' pull, wait\n", imageName)
 
 		resp, err := dockerClient.ImagePull(context.TODO(), imageName, types.ImagePullOptions{})
-		if err != nil {
-			fmt.Println(err)
+		if nil != err {
+			log.Printf("Can't pull image, error: %s\n", err)
 			return container.ContainerCreateCreatedBody{}, err
 		}
 		io.Copy(ioutil.Discard, resp)
@@ -107,7 +107,9 @@ func createContainer(dockerClient *client.Client, description ContainerDescripti
 			nil,
 			"",
 		)
-		fmt.Println(err)
+		if nil != err {
+			log.Printf("Retry container create failed: %s\n", err)
+		}
 
 		return containerCreatedResponse, err
 
@@ -143,7 +145,7 @@ func getContainerConfigs(imageName string, hostPort, containerPort int, envVars 
 	for envVarName, envVarValue := range envVars {
 		containerConfig.Env = append(containerConfig.Env, fmt.Sprintf("%v=%v", envVarName, envVarValue))
 	}
-	// sort binds to make order deterministic; useful for testing
+	// sort binds to make order deterministic
 	sort.Strings(containerConfig.Env)
 	//TODO
 	for port := range portBindings {
